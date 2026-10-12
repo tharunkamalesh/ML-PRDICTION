@@ -12,12 +12,25 @@ import hashlib
 import bcrypt
 from datetime import datetime, timezone, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "disease_prediction.db")
+def get_db_path():
+    """Resolves database file path, supporting Render persistent disks (e.g. /var/data)."""
+    configured = os.environ.get("DATABASE_PATH") or os.environ.get("DB_PATH")
+    if configured:
+        target_dir = os.path.dirname(os.path.abspath(configured))
+        try:
+            if target_dir and not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+            return configured
+        except Exception as e:
+            print(f"Warning: Could not create directory {target_dir}: {e}. Using fallback path.")
+    return os.path.join(os.path.dirname(__file__), "disease_prediction.db")
+
+DB_PATH = get_db_path()
 
 
 def get_db_connection():
     """Returns an active SQLite connection with row access by column name."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn

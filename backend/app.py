@@ -49,25 +49,42 @@ from database import (
     clear_history
 )
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 app = Flask(__name__)
+# Enable ProxyFix to correctly interpret reverse proxy headers from Render
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Secret key & Configuration
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "healthai-secure-secret-key-2026")
 SESSION_COOKIE_NAME = "healthai_session"
 CSRF_COOKIE_NAME = "healthai_csrf"
 COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "False").strip().lower() in ("true", "1")
+COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "None" if COOKIE_SECURE else "Lax")
 
-# Configure CORS with credentials support
+# Configure CORS dynamically for deployed frontend and local development
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+    "http://localhost:3000"
+]
+frontend_url = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
+if frontend_url and frontend_url not in allowed_origins:
+    allowed_origins.append(frontend_url)
+
+extra_origins = os.environ.get("ALLOWED_ORIGINS", "").strip()
+if extra_origins:
+    for origin in extra_origins.split(","):
+        cleaned = origin.strip().rstrip("/")
+        if cleaned and cleaned not in allowed_origins:
+            allowed_origins.append(cleaned)
+
 CORS(
     app,
     supports_credentials=True,
-    resources={r"/api/*": {"origins": [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5000",
-        "http://127.0.0.1:5000",
-        "http://localhost:3000"
-    ]}}
+    resources={r"/api/*": {"origins": allowed_origins}}
 )
 
 # Ensure database tables and initial admin exist
@@ -206,7 +223,7 @@ def set_auth_cookies(response, session_id: str, csrf_token: str):
         session_id,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="Lax",
+        samesite=COOKIE_SAMESITE,
         max_age=7 * 24 * 3600,
         path="/"
     )
@@ -216,7 +233,7 @@ def set_auth_cookies(response, session_id: str, csrf_token: str):
         csrf_token,
         httponly=False,
         secure=COOKIE_SECURE,
-        samesite="Lax",
+        samesite=COOKIE_SAMESITE,
         max_age=7 * 24 * 3600,
         path="/"
     )
@@ -225,8 +242,18 @@ def set_auth_cookies(response, session_id: str, csrf_token: str):
 
 def clear_auth_cookies(response):
     """Clears session and CSRF cookies upon logout or account deletion."""
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
-    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+    response.delete_cookie(
+        SESSION_COOKIE_NAME,
+        path="/",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE
+    )
+    response.delete_cookie(
+        CSRF_COOKIE_NAME,
+        path="/",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE
+    )
     return response
 
 

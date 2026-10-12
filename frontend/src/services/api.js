@@ -4,7 +4,12 @@
  * CSRF token injection, role-based requests, and ML inference.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const rawBase = import.meta.env.VITE_API_BASE_URL;
+let API_BASE = '/api';
+if (rawBase) {
+  const trimmed = rawBase.replace(/\/+$/, '');
+  API_BASE = trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
 
 let memoryCsrfToken = '';
 

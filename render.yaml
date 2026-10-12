@@ -1,0 +1,65 @@
+# ==============================================================================
+# Render Blueprint Specification for HealthAI Disease Prediction System
+# Full-Stack Deployment: Python Flask REST API Backend + React Vite Static Site
+# Repository: tharunkamalesh/ML-PRDICTION
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Backend Web Service: Flask REST API & Random Forest ML Inference Engine
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: healthai-backend
+    runtime: python
+    region: oregon
+    plan: starter # Starter tier supports persistent disk for permanent SQLite storage
+    buildCommand: pip install --upgrade pip && pip install -r backend/requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 wsgi:app
+    healthCheckPath: /api/health
+    disk:
+      name: healthai-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: SESSION_COOKIE_SAMESITE
+        value: "None"
+      - key: DATABASE_PATH
+        value: /var/data/disease_prediction.db
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: healthai-frontend
+          property: url
+      - key: ADMIN_EMAIL
+        value: admin@healthai.local
+      - key: ADMIN_PASSWORD
+        sync: false # Prompts user during Blueprint setup to enter secure admin password
+      - key: ADMIN_NAME
+        value: System Administrator
+
+  # ----------------------------------------------------------------------------
+  # 2. Frontend Web Service: React Vite Single Page Application (Static Site)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: healthai-frontend
+    runtime: static
+    region: oregon
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: healthai-backend
+          property: url
