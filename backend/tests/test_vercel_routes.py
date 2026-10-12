@@ -115,3 +115,31 @@ def test_vercel_entrypoint_imports():
     spec_b.loader.exec_module(module_b)
     assert hasattr(module_b, "app")
     assert isinstance(module_b.app, Flask)
+
+
+def test_vercel_path_fix_middleware(client):
+    """
+    Simulate Vercel edge rewrite where PATH_INFO is /api/index.py or /api/index
+    and HTTP_X_FORWARDED_URI contains the true original client request URL.
+    """
+    # 1. Simulating Vercel rewrite of /api/health to /api/index.py
+    res = client.get("/api/index.py", headers={"X-Forwarded-Uri": "/api/health"})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["status"] == "healthy"
+    assert data["model_loaded"] is True
+
+    # 2. Simulating Vercel rewrite of root / to /api/index.py
+    res_root = client.get("/api/index.py", headers={"X-Forwarded-Uri": "/"})
+    assert res_root.status_code == 200
+    assert res_root.get_json()["status"] == "online"
+
+    # 3. Simulating Vercel rewrite of /api/symptoms to /api/index
+    res_sym = client.get("/api/index", headers={"X-Forwarded-Uri": "/api/symptoms"})
+    assert res_sym.status_code == 200
+    assert res_sym.get_json()["success"] is True
+
+    # 4. Direct request to /api/index.py without headers should also return 200 online info
+    res_direct = client.get("/api/index.py")
+    assert res_direct.status_code == 200
+    assert res_direct.get_json()["status"] == "online"

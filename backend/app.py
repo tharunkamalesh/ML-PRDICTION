@@ -51,8 +51,48 @@ from database import (
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+class VercelPathFixMiddleware:
+    """
+    WSGI Middleware to restore the true client request path and query string on Vercel.
+    When Vercel's edge proxy rewrites incoming requests to /api/index.py or /api/index,
+    the WSGI PATH_INFO variable may be overwritten with the internal function file path.
+    This middleware restores the original URL from HTTP_X_FORWARDED_URI or HTTP_X_MATCHED_PATH.
+    """
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        path_info = environ.get("PATH_INFO", "")
+        # If PATH_INFO points to the serverless function destination
+        if path_info in ("/api/index.py", "/api/index", "/api", "/index.py", "/index", ""):
+            raw_uri = (
+                environ.get("HTTP_X_FORWARDED_URI") or 
+                environ.get("HTTP_X_ORIGINAL_URI") or 
+                environ.get("HTTP_X_MATCHED_PATH") or
+                environ.get("RAW_URI")
+            )
+            if raw_uri:
+                if "?" in raw_uri:
+                    clean_path, query_str = raw_uri.split("?", 1)
+                    if not environ.get("QUERY_STRING"):
+                        environ["QUERY_STRING"] = query_str
+                else:
+                    clean_path = raw_uri
+
+                clean_path = clean_path.strip()
+                if clean_path and clean_path not in ("/api/index.py", "/api/index", "/index.py", "/index"):
+                    environ["PATH_INFO"] = clean_path
+                else:
+                    environ["PATH_INFO"] = "/"
+            else:
+                environ["PATH_INFO"] = "/"
+
+        return self.app(environ, start_response)
+
 app = Flask(__name__)
-# Enable ProxyFix to correctly interpret reverse proxy headers from Render
+# 1. Restore real request path from Vercel edge proxy headers
+app.wsgi_app = VercelPathFixMiddleware(app.wsgi_app)
+# 2. Enable ProxyFix to correctly interpret reverse proxy headers from Render and Vercel
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Secret key & Configuration
@@ -263,6 +303,10 @@ def clear_auth_cookies(response):
 
 @app.route("/", methods=["GET"])
 @app.route("/api", methods=["GET"])
+@app.route("/api/index", methods=["GET"])
+@app.route("/api/index.py", methods=["GET"])
+@app.route("/index", methods=["GET"])
+@app.route("/index.py", methods=["GET"])
 def root_info():
     """Root endpoint providing service discovery, status, and endpoint catalog."""
     model_ready = prediction_service.model is not None
