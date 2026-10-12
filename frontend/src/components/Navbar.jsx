@@ -1,8 +1,23 @@
 import React, { useState } from 'react';
-import { Activity, Stethoscope, BarChart3, Info, Shield, Menu, X, CheckCircle2 } from 'lucide-react';
+import {
+  Activity,
+  Stethoscope,
+  BarChart3,
+  Info,
+  Shield,
+  Menu,
+  X,
+  User,
+  LogOut,
+  LogIn,
+  UserPlus,
+  ShieldAlert
+} from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, isAuthenticated, logout } = useAuth();
 
   const navItems = [
     { id: 'home', label: 'Home', icon: Activity },
@@ -14,6 +29,12 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
 
   const handleNavClick = (id) => {
     setActiveTab(id);
+    setMobileMenuOpen(false);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setActiveTab('home');
     setMobileMenuOpen(false);
   };
 
@@ -43,7 +64,7 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
           </div>
 
           {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -51,7 +72,7 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
                 <button
                   key={item.id}
                   onClick={() => handleNavClick(item.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
                     isActive
                       ? 'bg-brand-50 text-brand-700 shadow-sm border border-brand-200'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -64,9 +85,10 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
             })}
           </nav>
 
-          {/* Right Action / System Status */}
-          <div className="hidden sm:flex items-center gap-3">
-            <div className="flex items-center gap-2 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600">
+          {/* Right Action / Auth Controls */}
+          <div className="hidden sm:flex items-center gap-2.5">
+            {/* Status indicator */}
+            <div className="flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600">
               <span
                 className={`w-2 h-2 rounded-full ${
                   backendStatus === 'connected' || backendStatus === 'healthy'
@@ -78,29 +100,76 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
                     : 'bg-amber-400 animate-pulse'
                 }`}
               />
-              <span>
+              <span className="text-[11px]">
                 {backendStatus === 'connected' || backendStatus === 'healthy'
                   ? 'Connected'
                   : backendStatus === 'model_unavailable'
-                  ? 'Model Unavailable'
+                  ? 'Model Off'
                   : backendStatus === 'disconnected'
                   ? 'Disconnected'
-                  : 'Connecting...'}
+                  : 'Connecting'}
               </span>
             </div>
-            {activeTab !== 'assessment' && (
-              <button
-                onClick={() => handleNavClick('assessment')}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-brand-600/20 hover:shadow-lg transition transform active:scale-95"
-              >
-                <Stethoscope className="w-4 h-4" />
-                Check Symptoms
-              </button>
+
+            {/* Auth Buttons or User Badge */}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-2 pl-1 border-l border-slate-200">
+                <button
+                  onClick={() => handleNavClick('profile')}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
+                    activeTab === 'profile'
+                      ? 'bg-brand-50 border-brand-300 text-brand-800'
+                      : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                  title="Manage account settings"
+                >
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-brand-600 to-teal-500 text-white font-bold text-[10px] flex items-center justify-center">
+                    {user?.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                  </div>
+                  <span className="max-w-[110px] truncate">{user?.full_name?.split(' ')[0]}</span>
+                  {user?.role === 'admin' && (
+                    <span className="text-[9px] uppercase font-extrabold px-1 py-0.2 rounded bg-amber-100 text-amber-800">
+                      Admin
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleLogout}
+                  className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                  title="Sign out"
+                  aria-label="Sign out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 pl-1 border-l border-slate-200">
+                <button
+                  onClick={() => handleNavClick('login')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    activeTab === 'login'
+                      ? 'bg-brand-50 text-brand-700 border border-brand-200'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </button>
+
+                <button
+                  onClick={() => handleNavClick('register')}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Sign Up</span>
+                </button>
+              </div>
             )}
           </div>
 
-          {/* Mobile menu button */}
-          <div className="md:hidden flex items-center gap-2">
+          {/* Mobile menu hamburger */}
+          <div className="lg:hidden flex items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
@@ -114,7 +183,45 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-2 pb-4 space-y-1 shadow-lg animate-fadeIn">
+        <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-5 space-y-1.5 shadow-xl animate-fadeIn">
+          {/* User Status Bar in Mobile */}
+          {isAuthenticated ? (
+            <div className="p-3 mb-2 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-brand-600 text-white font-bold text-xs flex items-center justify-center">
+                  {user?.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-900">{user?.full_name}</p>
+                  <p className="text-[10px] text-slate-500 capitalize">{user?.role} Account</p>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="text-xs font-bold text-rose-600 hover:underline flex items-center gap-1"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>Log Out</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button
+                onClick={() => handleNavClick('login')}
+                className="w-full py-2.5 px-3 rounded-xl border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 text-center"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => handleNavClick('register')}
+                className="w-full py-2.5 px-3 rounded-xl bg-brand-600 text-white text-xs font-bold text-center shadow"
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
+
+          {/* Navigation Items */}
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -122,23 +229,38 @@ export default function Navbar({ activeTab, setActiveTab, backendStatus }) {
               <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-base font-semibold ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold ${
                   isActive
                     ? 'bg-brand-50 text-brand-700 border border-brand-200'
                     : 'text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                <Icon className="w-5 h-5 text-brand-600" />
+                <Icon className="w-4 h-4 text-brand-600" />
                 {item.label}
               </button>
             );
           })}
+
+          {isAuthenticated && (
+            <button
+              onClick={() => handleNavClick('profile')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold ${
+                activeTab === 'profile'
+                  ? 'bg-brand-50 text-brand-700 border border-brand-200'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <User className="w-4 h-4 text-brand-600" />
+              Account Settings
+            </button>
+          )}
+
           <div className="pt-2">
             <button
               onClick={() => handleNavClick('assessment')}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-brand-600 text-white font-semibold rounded-xl shadow"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-600 to-teal-600 text-white font-bold text-sm rounded-xl shadow"
             >
-              <Stethoscope className="w-5 h-5" />
+              <Stethoscope className="w-4 h-4" />
               Check Symptoms Now
             </button>
           </div>

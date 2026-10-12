@@ -6,21 +6,24 @@ import {
   AlertTriangle,
   Stethoscope,
   Activity,
-  Filter,
-  Trash2,
   ArrowRight,
   ShieldAlert,
   Loader2,
-  Info
+  Info,
+  LogIn,
+  ShieldCheck
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function Assessment({
   symptomsData,
   loadingSymptoms,
   symptomsError,
   onSubmitAssessment,
-  isPredicting
+  isPredicting,
+  onNavigate
 }) {
+  const { user, isAuthenticated } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedSymptoms, setSelectedSymptoms] = useState([]);
@@ -345,35 +348,71 @@ export default function Assessment({
               </div>
             )}
 
+            {/* Authentication Notice or User Status */}
+            {!isAuthenticated ? (
+              <div className="p-3.5 bg-brand-50 border border-brand-200 rounded-2xl text-xs text-brand-900 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <LogIn className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                  <span className="font-medium">Sign in to submit assessment and save screening history.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigate && onNavigate('login')}
+                  className="font-bold text-brand-700 hover:text-brand-900 underline whitespace-nowrap cursor-pointer"
+                >
+                  Sign In
+                </button>
+              </div>
+            ) : (
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-600 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-teal-600 flex-shrink-0" />
+                <span>
+                  Logged in as <strong className="text-slate-800 font-semibold">{user?.full_name}</strong>
+                </span>
+              </div>
+            )}
+
             {/* Submit Button */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isPredicting || selectedSymptoms.length === 0}
-              className={`w-full py-4 rounded-2xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-2 ${
-                isPredicting || selectedSymptoms.length === 0
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                  : 'bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white shadow-brand-600/30 hover:shadow-brand-600/50 hover:-translate-y-0.5'
-              }`}
-            >
-              {isPredicting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Evaluating Random Forest Ensembles...</span>
-                </>
-              ) : (
-                <>
-                  <Activity className="w-5 h-5" />
-                  <span>Analyze Symptoms with AI</span>
-                  <ArrowRight className="w-4 h-4 ml-1" />
-                </>
-              )}
-            </button>
+            {!isAuthenticated ? (
+              <button
+                type="button"
+                onClick={() => onNavigate && onNavigate('login')}
+                className="w-full py-4 rounded-2xl font-bold text-sm shadow-md bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white flex items-center justify-center gap-2 cursor-pointer transition hover:-translate-y-0.5 active:scale-[0.99]"
+              >
+                <LogIn className="w-5 h-5" />
+                <span>Sign In to Analyze Symptoms</span>
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isPredicting || selectedSymptoms.length === 0}
+                className={`w-full py-4 rounded-2xl font-bold text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer ${
+                  isPredicting || selectedSymptoms.length === 0
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white shadow-brand-600/30 hover:shadow-brand-600/50 hover:-translate-y-0.5'
+                }`}
+              >
+                {isPredicting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Evaluating Random Forest Ensembles...</span>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="w-5 h-5" />
+                    <span>Analyze Symptoms with AI</span>
+                    <ArrowRight className="w-4 h-4 ml-1" />
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Trust and Privacy info */}
             <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 space-y-1">
               <p>&bull; Prediction runs locally on Random Forest model (100 estimators).</p>
-              <p>&bull; No personal identity or clinical record is stored.</p>
+              <p>&bull; Secure session protected with Argon2/bcrypt & HttpOnly cookie.</p>
             </div>
           </div>
         </div>

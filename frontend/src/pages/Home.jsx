@@ -100,7 +100,7 @@ export default function Home({ onNavigate, stats }) {
               {/* Safety notice bullet */}
               <div className="flex items-center gap-2 text-xs text-slate-500 pt-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                <span>Strictly educational screening &bull; No registration required &bull; 100% confidential</span>
+                <span>Strictly educational screening &bull; Secure authenticated sessions &bull; 100% confidential</span>
               </div>
             </div>
 

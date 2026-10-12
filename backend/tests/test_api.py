@@ -1,5 +1,6 @@
 """
 Unit and Integration Tests for AI-Based Disease Prediction System Backend
+Validates health, symptom catalog, ML prediction, model evaluation, and history logging.
 """
 
 import sys
@@ -17,12 +18,26 @@ from database import init_db, clear_history
 def client():
     app.config["TESTING"] = True
     init_db()
-    clear_history()
+    clear_history(is_admin=True)
     with app.test_client() as client:
         yield client
 
+import uuid
+
+@pytest.fixture
+def auth_client(client):
+    """Fixture providing an authenticated client and valid CSRF token."""
+    email = f"apitest_{uuid.uuid4().hex[:8]}@example.com"
+    resp = client.post("/api/auth/register", json={
+        "full_name": "API Test User",
+        "email": email,
+        "password": "Password123!"
+    })
+    csrf_token = json.loads(resp.data)["csrf_token"]
+    return client, csrf_token
+
 def test_health_endpoint(client):
-    """Verify system health and model status."""
+    """Verify system health and model status is public."""
     response = client.get("/api/health")
     assert response.status_code == 200
     data = json.loads(response.data)
@@ -31,7 +46,7 @@ def test_health_endpoint(client):
     assert data["total_symptoms_supported"] > 100
 
 def test_symptoms_endpoint(client):
-    """Verify symptom catalog format and categorization."""
+    """Verify symptom catalog format and categorization is public."""
     response = client.get("/api/symptoms")
     assert response.status_code == 200
     data = json.loads(response.data)
@@ -41,12 +56,29 @@ def test_symptoms_endpoint(client):
     assert "flat_list" in data["data"]
     assert data["data"]["total_count"] > 100
 
-def test_predict_valid_symptoms(client):
-    """Test standard prediction with valid symptoms."""
+def test_predict_requires_authentication(client):
+    """Verify that unauthenticated prediction requests are rejected with 401."""
+    payload = {
+        "symptoms": ["itching", "skin_rash"]
+    }
+    response = client.post("/api/predict", data=json.dumps(payload), content_type="application/json")
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert data["success"] is False
+    assert data["code"] == "UNAUTHORIZED"
+
+def test_predict_valid_symptoms(auth_client):
+    """Test standard prediction with valid symptoms when authenticated."""
+    client, csrf = auth_client
     payload = {
         "symptoms": ["itching", "skin_rash", "nodal_skin_eruptions", "dischromic_patches"]
     }
-    response = client.post("/api/predict", data=json.dumps(payload), content_type="application/json")
+    response = client.post(
+        "/api/predict",
+        data=json.dumps(payload),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf}
+    )
     assert response.status_code == 200
     data = json.loads(response.data)
     assert data["success"] is True
@@ -58,12 +90,18 @@ def test_predict_valid_symptoms(client):
     assert data["data"]["emergency_alert"] is None
     assert "disclaimer" in data["data"]
 
-def test_predict_emergency_trigger(client):
+def test_predict_emergency_trigger(auth_client):
     """Test emergency alert trigger when critical symptoms are reported."""
+    client, csrf = auth_client
     payload = {
         "symptoms": ["chest_pain", "breathlessness", "sweating"]
     }
-    response = client.post("/api/predict", data=json.dumps(payload), content_type="application/json")
+    response = client.post(
+        "/api/predict",
+        data=json.dumps(payload),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf}
+    )
     assert response.status_code == 200
     data = json.loads(response.data)
     assert data["success"] is True
@@ -73,18 +111,30 @@ def test_predict_emergency_trigger(client):
     assert "Chest Pain" in emergency["detected_symptoms"] or "Breathlessness" in emergency["detected_symptoms"]
     assert "CRITICAL" in emergency["warning_level"]
 
-def test_predict_empty_symptoms_validation(client):
+def test_predict_empty_symptoms_validation(auth_client):
     """Test error handling when empty symptom array is sent."""
+    client, csrf = auth_client
     payload = {"symptoms": []}
-    response = client.post("/api/predict", data=json.dumps(payload), content_type="application/json")
+    response = client.post(
+        "/api/predict",
+        data=json.dumps(payload),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf}
+    )
     assert response.status_code == 400
     data = json.loads(response.data)
     assert data["success"] is False
 
-def test_predict_unrecognized_symptoms_validation(client):
+def test_predict_unrecognized_symptoms_validation(auth_client):
     """Test error handling when invalid symptoms not in dataset are sent."""
+    client, csrf = auth_client
     payload = {"symptoms": ["space_fever", "alien_cough"]}
-    response = client.post("/api/predict", data=json.dumps(payload), content_type="application/json")
+    response = client.post(
+        "/api/predict",
+        data=json.dumps(payload),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf}
+    )
     assert response.status_code == 400
     data = json.loads(response.data)
     assert data["success"] is False
@@ -103,11 +153,17 @@ def test_model_metrics_endpoint(client):
     assert "confusion_matrix" in metrics
     assert len(metrics["top_features"]) > 0
 
-def test_dashboard_stats_and_history(client):
+def test_dashboard_stats_and_history(auth_client):
     """Verify assessment logging and dashboard statistics retrieval."""
+    client, csrf = auth_client
     # Perform a prediction first
     payload = {"symptoms": ["joint_pain", "neck_pain", "knee_pain"]}
-    client.post("/api/predict", data=json.dumps(payload), content_type="application/json")
+    client.post(
+        "/api/predict",
+        data=json.dumps(payload),
+        content_type="application/json",
+        headers={"X-CSRF-Token": csrf}
+    )
 
     # Fetch stats
     stats_resp = client.get("/api/dashboard/stats")
@@ -123,7 +179,7 @@ def test_dashboard_stats_and_history(client):
     assert hist_data["data"][0]["primary_prediction"] == "Osteoarthristis"
 
     # Test clear history
-    clear_resp = client.post("/api/history/clear")
+    clear_resp = client.post("/api/history/clear", headers={"X-CSRF-Token": csrf})
     assert clear_resp.status_code == 200
     hist_resp2 = client.get("/api/history")
     assert json.loads(hist_resp2.data)["count"] == 0

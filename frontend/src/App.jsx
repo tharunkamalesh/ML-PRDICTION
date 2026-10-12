@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import DisclaimerBanner from './components/DisclaimerBanner';
@@ -10,6 +10,12 @@ import Results from './pages/Results';
 import ModelEvaluation from './pages/ModelEvaluation';
 import Dashboard from './pages/Dashboard';
 import About from './pages/About';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import Profile from './pages/Profile';
+
+import { AuthProvider, useAuth } from './context/AuthContext';
 
 import {
   checkHealth,
@@ -21,8 +27,11 @@ import {
   clearAssessmentHistory
 } from './services/api';
 
-export default function App() {
+function MainApp() {
+  const { user, isAuthenticated, isAdmin } = useAuth();
+
   const [activeTab, setActiveTab] = useState('home');
+  const [returnToTab, setReturnToTab] = useState('home');
   const [backendStatus, setBackendStatus] = useState('connecting');
 
   // Symptoms catalog state
@@ -47,6 +56,22 @@ export default function App() {
   // Emergency modal state
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
   const [emergencyData, setEmergencyData] = useState(null);
+
+  const refreshDashboardData = useCallback(async () => {
+    try {
+      setLoadingHistory(true);
+      const [stats, hist] = await Promise.all([
+        fetchDashboardStats(),
+        fetchAssessmentHistory(25, isAdmin)
+      ]);
+      setDashboardStats(stats);
+      setHistory(hist);
+    } catch (err) {
+      console.warn('Could not refresh dashboard stats:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [isAdmin]);
 
   // Initial data loading on mount
   useEffect(() => {
@@ -88,26 +113,22 @@ export default function App() {
     }
 
     initApp();
-  }, []);
+  }, [refreshDashboardData]);
 
-  const refreshDashboardData = async () => {
-    try {
-      setLoadingHistory(true);
-      const [stats, hist] = await Promise.all([
-        fetchDashboardStats(),
-        fetchAssessmentHistory(25)
-      ]);
-      setDashboardStats(stats);
-      setHistory(hist);
-    } catch (err) {
-      console.warn('Could not refresh dashboard stats:', err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
+  // Refresh history whenever authentication state changes
+  useEffect(() => {
+    refreshDashboardData();
+  }, [isAuthenticated, isAdmin, refreshDashboardData]);
 
   // Assessment submission handler
   const handleAssessmentSubmit = async (selectedSymptoms) => {
+    if (!isAuthenticated) {
+      setReturnToTab('assessment');
+      setActiveTab('login');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     try {
       setIsPredicting(true);
       const result = await predictDisease(selectedSymptoms);
@@ -124,14 +145,19 @@ export default function App() {
       // Update history in background
       refreshDashboardData();
     } catch (err) {
-      alert(`Prediction failed: ${err.message || 'Unknown error'}`);
+      if (err.message === 'AUTH_REQUIRED') {
+        setReturnToTab('assessment');
+        setActiveTab('login');
+      } else {
+        alert(`Prediction failed: ${err.message || 'Unknown error'}`);
+      }
     } finally {
       setIsPredicting(false);
     }
   };
 
   const handleClearHistory = async () => {
-    await clearAssessmentHistory();
+    await clearAssessmentHistory(isAdmin ? 'all' : 'personal');
     await refreshDashboardData();
   };
 
@@ -141,7 +167,14 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleNavigate = (tab) => {
+  const handleNavigate = (tab, intendedReturn = null) => {
+    if (intendedReturn) {
+      setReturnToTab(intendedReturn);
+    } else if (tab === 'login' || tab === 'register') {
+      if (activeTab !== 'login' && activeTab !== 'register') {
+        setReturnToTab(activeTab);
+      }
+    }
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -174,6 +207,7 @@ export default function App() {
             symptomsError={symptomsError}
             onSubmitAssessment={handleAssessmentSubmit}
             isPredicting={isPredicting}
+            onNavigate={handleNavigate}
           />
         )}
 
@@ -207,6 +241,32 @@ export default function App() {
         {activeTab === 'about' && (
           <About onNavigate={handleNavigate} />
         )}
+
+        {activeTab === 'login' && (
+          <Login
+            onNavigate={handleNavigate}
+            returnTo={returnToTab}
+          />
+        )}
+
+        {activeTab === 'register' && (
+          <Register
+            onNavigate={handleNavigate}
+            returnTo={returnToTab}
+          />
+        )}
+
+        {activeTab === 'forgot-password' && (
+          <ForgotPassword
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {activeTab === 'profile' && (
+          <Profile
+            onNavigate={handleNavigate}
+          />
+        )}
       </main>
 
       {/* Emergency Triage Modal */}
@@ -219,5 +279,13 @@ export default function App() {
       {/* Footer */}
       <Footer onNavigate={handleNavigate} />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   );
 }
