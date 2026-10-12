@@ -84,7 +84,7 @@ if extra_origins:
 CORS(
     app,
     supports_credentials=True,
-    resources={r"/api/*": {"origins": allowed_origins}}
+    resources={r"/*": {"origins": allowed_origins}}
 )
 
 # Ensure database tables and initial admin exist
@@ -261,7 +261,36 @@ def clear_auth_cookies(response):
 # Public Service & Diagnostic Endpoints
 # ============================================================================
 
+@app.route("/", methods=["GET"])
+@app.route("/api", methods=["GET"])
+def root_info():
+    """Root endpoint providing service discovery, status, and endpoint catalog."""
+    model_ready = prediction_service.model is not None
+    return jsonify({
+        "service": "HealthAI Disease Prediction Engine API",
+        "status": "online",
+        "version": "1.0.0",
+        "model_loaded": model_ready,
+        "total_symptoms_supported": len(prediction_service.symptoms_list),
+        "total_conditions_supported": len(prediction_service.disease_profiles),
+        "endpoints": {
+            "health": "/api/health",
+            "symptoms": "/api/symptoms",
+            "metrics": "/api/metrics",
+            "predict": "/api/predict",
+            "dashboard_stats": "/api/dashboard/stats",
+            "auth": {
+                "register": "/api/auth/register",
+                "login": "/api/auth/login",
+                "logout": "/api/auth/logout",
+                "me": "/api/auth/me"
+            }
+        }
+    }), 200
+
+
 @app.route("/api/health", methods=["GET"])
+@app.route("/health", methods=["GET"])
 def health_check():
     """Public system health check endpoint."""
     model_ready = prediction_service.model is not None
@@ -276,6 +305,7 @@ def health_check():
 
 
 @app.route("/api/symptoms", methods=["GET"])
+@app.route("/symptoms", methods=["GET"])
 def get_symptoms():
     """Public symptom catalog grouped by anatomical/clinical category."""
     try:
@@ -289,6 +319,7 @@ def get_symptoms():
 
 
 @app.route("/api/metrics", methods=["GET"])
+@app.route("/metrics", methods=["GET"])
 def get_metrics():
     """Public model evaluation metrics evaluated on held-out test split."""
     try:
@@ -308,6 +339,7 @@ def get_metrics():
 
 
 @app.route("/api/dashboard/stats", methods=["GET"])
+@app.route("/dashboard/stats", methods=["GET"])
 def get_dashboard_stats():
     """Retrieve aggregate usage statistics and model benchmark summary."""
     try:
@@ -337,6 +369,7 @@ def get_dashboard_stats():
 # ============================================================================
 
 @app.route("/api/auth/register", methods=["POST"])
+@app.route("/auth/register", methods=["POST"])
 def register():
     """
     Registers a new regular user account.
@@ -399,6 +432,7 @@ def register():
 
 
 @app.route("/api/auth/login", methods=["POST"])
+@app.route("/auth/login", methods=["POST"])
 def login():
     """
     Authenticates user using email and password.
@@ -458,6 +492,7 @@ def login():
 
 
 @app.route("/api/auth/logout", methods=["POST"])
+@app.route("/auth/logout", methods=["POST"])
 def logout():
     """Invalidates active session and clears authentication cookies."""
     session_id = request.cookies.get(SESSION_COOKIE_NAME)
@@ -477,6 +512,7 @@ def logout():
 
 
 @app.route("/api/auth/me", methods=["GET"])
+@app.route("/auth/me", methods=["GET"])
 def get_current_user():
     """
     Checks if active session exists.
@@ -503,6 +539,7 @@ def get_current_user():
 
 
 @app.route("/api/auth/profile", methods=["PUT"])
+@app.route("/auth/profile", methods=["PUT"])
 @login_required
 def update_profile(current_user, session_data):
     """Updates user profile information (name, email, password)."""
@@ -556,6 +593,7 @@ def update_profile(current_user, session_data):
 
 
 @app.route("/api/auth/account", methods=["DELETE"])
+@app.route("/auth/account", methods=["DELETE"])
 @login_required
 def delete_account(current_user, session_data):
     """
@@ -582,6 +620,7 @@ def delete_account(current_user, session_data):
 
 
 @app.route("/api/auth/forgot-password", methods=["POST"])
+@app.route("/auth/forgot-password", methods=["POST"])
 def forgot_password():
     """
     Generates a password reset token for the given email.
@@ -648,6 +687,7 @@ def forgot_password():
 
 
 @app.route("/api/auth/reset-password", methods=["POST"])
+@app.route("/auth/reset-password", methods=["POST"])
 def reset_password():
     """Consumes password reset token and sets new password."""
     payload = request.get_json(silent=True) or {}
@@ -679,6 +719,7 @@ def reset_password():
 # ============================================================================
 
 @app.route("/api/predict", methods=["POST"])
+@app.route("/predict", methods=["POST"])
 @login_required
 def predict_disease(current_user, session_data):
     """
@@ -738,6 +779,7 @@ def predict_disease(current_user, session_data):
 
 
 @app.route("/api/history", methods=["GET"])
+@app.route("/history", methods=["GET"])
 @login_required
 def get_assessment_history(current_user, session_data):
     """
@@ -768,6 +810,7 @@ def get_assessment_history(current_user, session_data):
 
 
 @app.route("/api/history/clear", methods=["POST"])
+@app.route("/history/clear", methods=["POST"])
 @login_required
 def clear_assessment_history(current_user, session_data):
     """
@@ -799,6 +842,7 @@ def clear_assessment_history(current_user, session_data):
 # ============================================================================
 
 @app.route("/api/admin/users", methods=["GET"])
+@app.route("/admin/users", methods=["GET"])
 @admin_required
 def admin_get_users(current_user, session_data):
     """Administrator endpoint: lists all registered user accounts."""
@@ -814,6 +858,7 @@ def admin_get_users(current_user, session_data):
 
 
 @app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+@app.route("/admin/users/<int:user_id>", methods=["DELETE"])
 @admin_required
 def admin_delete_user(current_user, session_data, user_id):
     """Administrator endpoint: deletes a user account after authorization."""
@@ -835,6 +880,7 @@ def admin_delete_user(current_user, session_data, user_id):
 
 
 @app.route("/api/admin/users/<int:user_id>/status", methods=["PUT"])
+@app.route("/admin/users/<int:user_id>/status", methods=["PUT"])
 @admin_required
 def admin_update_user_status(current_user, session_data, user_id):
     """Administrator endpoint: toggles user activation or changes role."""
@@ -863,6 +909,24 @@ def admin_update_user_status(current_user, session_data, user_id):
             "is_active": bool(updated["is_active"])
         }
     }), 200
+
+
+@app.errorhandler(404)
+def handle_404_not_found(error):
+    """Custom JSON 404 handler for unmatched routes."""
+    return jsonify({
+        "success": False,
+        "error": "Not Found",
+        "message": f"The requested URL '{request.path}' was not found on this server.",
+        "endpoints": {
+            "root": "/",
+            "health": "/api/health",
+            "symptoms": "/api/symptoms",
+            "metrics": "/api/metrics",
+            "predict": "/api/predict",
+            "dashboard_stats": "/api/dashboard/stats"
+        }
+    }), 404
 
 
 if __name__ == "__main__":

@@ -9,7 +9,30 @@ import json
 import joblib
 import numpy as np
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "model")
+def get_model_directory() -> str:
+    """Finds the model directory across various execution contexts (local, WSGI, Vercel)."""
+    configured = os.environ.get("MODEL_DIR")
+    if configured and os.path.exists(os.path.join(configured, "disease_model.joblib")):
+        return configured
+
+    candidates = [
+        # Relative to current file inside backend
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "model")),
+        # In parent directory
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model")),
+        # Working directory
+        os.path.abspath(os.path.join(os.getcwd(), "model")),
+        os.path.abspath(os.path.join(os.getcwd(), "backend", "model")),
+        # Vercel AWS Lambda task root
+        "/var/task/model",
+        "/var/task/backend/model",
+    ]
+    for c in candidates:
+        if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "disease_model.joblib")):
+            return c
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model"))
+
+MODEL_DIR = get_model_directory()
 
 class DiseasePredictionService:
     def __init__(self):

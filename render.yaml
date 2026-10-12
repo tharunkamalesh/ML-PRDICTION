@@ -35,7 +35,7 @@ services:
         fromService:
           type: web
           name: healthai-frontend
-          property: url
+          envVarKey: RENDER_EXTERNAL_URL
       - key: ADMIN_EMAIL
         value: admin@healthai.local
       - key: ADMIN_PASSWORD
@@ -62,4 +62,4 @@ services:
         fromService:
           type: web
           name: healthai-backend
-          property: url
+          envVarKey: RENDER_EXTERNAL_URL

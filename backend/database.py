@@ -13,7 +13,7 @@ import bcrypt
 from datetime import datetime, timezone, timedelta
 
 def get_db_path():
-    """Resolves database file path, supporting Render persistent disks (e.g. /var/data)."""
+    """Resolves database file path, supporting Render persistent disks and Vercel /tmp."""
     configured = os.environ.get("DATABASE_PATH") or os.environ.get("DB_PATH")
     if configured:
         target_dir = os.path.dirname(os.path.abspath(configured))
@@ -23,6 +23,21 @@ def get_db_path():
             return configured
         except Exception as e:
             print(f"Warning: Could not create directory {target_dir}: {e}. Using fallback path.")
+
+    # In serverless environments (Vercel, AWS Lambda) the project directory is read-only.
+    # Fallback to writable /tmp and copy the pre-seeded database if present.
+    is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or not os.access(os.path.dirname(__file__), os.W_OK))
+    if is_serverless:
+        tmp_db = "/tmp/disease_prediction.db"
+        seed_db = os.path.join(os.path.dirname(__file__), "disease_prediction.db")
+        if not os.path.exists(tmp_db) and os.path.exists(seed_db):
+            try:
+                import shutil
+                shutil.copy2(seed_db, tmp_db)
+            except Exception as e:
+                print(f"Notice: Could not copy seed db to /tmp: {e}")
+        return tmp_db
+
     return os.path.join(os.path.dirname(__file__), "disease_prediction.db")
 
 DB_PATH = get_db_path()
