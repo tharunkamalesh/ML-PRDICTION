@@ -169,10 +169,18 @@ CORS(
         r"/*": {
             "origins": allowed_origins,
             "allow_headers": ["Content-Type", "Authorization", "X-CSRF-Token", "X-Forwarded-Uri", "X-Original-Path", "X-Original-Uri"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+            "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
         }
     }
 )
+
+@app.before_request
+def handle_options_preflight():
+    """Immediately return 200 for OPTIONS preflight requests across all endpoints."""
+    if request.method == "OPTIONS":
+        res = make_response()
+        res.status_code = 200
+        return res
 
 # Ensure database tables and initial admin exist
 init_db()
@@ -243,6 +251,9 @@ def login_required(f):
     """Decorator ensuring request has valid authenticated session."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if request.method == "OPTIONS":
+            return make_response(), 200
+
         user, session_data = get_current_user_and_session()
         if not user:
             return jsonify({
@@ -251,8 +262,8 @@ def login_required(f):
                 "code": "UNAUTHORIZED"
             }), 401
 
-        # CSRF validation for mutating methods (POST, PUT, DELETE)
-        if request.method in ["POST", "PUT", "DELETE"]:
+        # CSRF validation for mutating methods (POST, PUT, PATCH, DELETE)
+        if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
             client_csrf = request.headers.get("X-CSRF-Token")
             session_csrf = session_data.get("csrf_token")
             # If request is from cookie session, verify CSRF token
@@ -272,6 +283,9 @@ def admin_required(f):
     """Decorator ensuring request has valid authenticated administrator session."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if request.method == "OPTIONS":
+            return make_response(), 200
+
         user, session_data = get_current_user_and_session()
         if not user:
             return jsonify({

@@ -13,10 +13,23 @@
  * - Trailing slashes stripped cleanly
  */
 export function getApiBaseUrl() {
-  const rawBase = import.meta.env.VITE_API_BASE_URL;
-  if (!rawBase || !rawBase.trim()) {
-    return '/api';
+  let rawBase = import.meta.env.VITE_API_BASE_URL;
+
+  // Auto-correct typo in environment variable if present (backend-tota -> backend-iota)
+  if (rawBase && typeof rawBase === 'string' && rawBase.includes('backend-tota-tawny-92.vercel.app')) {
+    rawBase = rawBase.replace('backend-tota-tawny-92.vercel.app', 'backend-iota-tawny-92.vercel.app');
   }
+
+  // If not explicitly configured, detect environment
+  if (!rawBase || !rawBase.trim()) {
+    // When running in the browser on Vercel frontend deployment, default to production backend
+    if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('vercel.app')) {
+      rawBase = 'https://backend-iota-tawny-92.vercel.app';
+    } else {
+      return '/api';
+    }
+  }
+
   const trimmed = rawBase.trim().replace(/\/+$/, '');
   return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
 }
@@ -63,25 +76,14 @@ export function getCsrfToken() {
 
 /**
  * Common fetch helper ensuring credentials (cookies), CSRF tokens,
- * and canonical routing headers are attached without duplicating /api.
+ * and clean request paths without duplicating /api.
  */
 async function request(endpoint, options = {}) {
   const url = formatApiUrl(endpoint);
   const headers = { ...(options.headers || {}) };
 
-  // Set forwarding headers to assist reverse edge proxies (like Vercel)
-  let normalizedPath = (endpoint || '').trim();
-  if (!normalizedPath.startsWith('/')) {
-    normalizedPath = `/${normalizedPath}`;
-  }
-  if (!normalizedPath.startsWith('/api')) {
-    normalizedPath = `/api${normalizedPath}`;
-  }
-  headers['X-Forwarded-Uri'] = normalizedPath;
-  headers['X-Original-Path'] = normalizedPath;
-
   const method = (options.method || 'GET').toUpperCase();
-  if (['POST', 'PUT', 'DELETE'].includes(method)) {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     const csrf = getCsrfToken();
     if (csrf) {
       headers['X-CSRF-Token'] = csrf;

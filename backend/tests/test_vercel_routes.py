@@ -200,22 +200,54 @@ def test_cors_headers_for_deployed_frontend(client):
     """Verify CORS preflight and responses allow the deployed Vercel frontend origin."""
     frontend_origin = "https://frontend-chi-one-urzm5h4o0z.vercel.app"
 
-    # Preflight OPTIONS request
-    res_opt = client.options(
-        "/api/symptoms",
-        headers={
-            "Origin": frontend_origin,
-            "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "Content-Type, X-CSRF-Token, X-Forwarded-Uri"
-        }
-    )
-    assert res_opt.status_code in (200, 204)
-    assert res_opt.headers.get("Access-Control-Allow-Origin") == frontend_origin
-    assert res_opt.headers.get("Access-Control-Allow-Credentials") == "true"
+    # 1. Preflight OPTIONS on public endpoints (/api/health, /api/symptoms, /api/metrics)
+    for endpoint in ["/api/health", "/api/symptoms", "/api/metrics", "/api/dashboard/stats"]:
+        res_opt = client.options(
+            endpoint,
+            headers={
+                "Origin": frontend_origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "Content-Type, X-CSRF-Token"
+            }
+        )
+        assert res_opt.status_code == 200, f"Preflight failed for {endpoint}"
+        assert res_opt.headers.get("Access-Control-Allow-Origin") == frontend_origin
+        assert res_opt.headers.get("Access-Control-Allow-Credentials") == "true"
+        allowed_methods = res_opt.headers.get("Access-Control-Allow-Methods", "")
+        assert "GET" in allowed_methods
+        assert "OPTIONS" in allowed_methods
 
-    # Standard GET request
+    # 2. Preflight OPTIONS on authenticated & mutating endpoints (MUST NOT be blocked by 401/403 auth)
+    auth_endpoints = [
+        ("/api/predict", "POST"),
+        ("/api/auth/me", "GET"),
+        ("/api/auth/profile", "PUT"),
+        ("/api/history", "GET"),
+        ("/api/admin/users", "GET"),
+        ("/api/auth/register", "POST"),
+        ("/api/auth/login", "POST")
+    ]
+    for endpoint, method in auth_endpoints:
+        res_opt = client.options(
+            endpoint,
+            headers={
+                "Origin": frontend_origin,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "Content-Type, Authorization, X-CSRF-Token"
+            }
+        )
+        assert res_opt.status_code == 200, f"Authenticated preflight failed for {endpoint}"
+        assert res_opt.headers.get("Access-Control-Allow-Origin") == frontend_origin
+        assert res_opt.headers.get("Access-Control-Allow-Credentials") == "true"
+        allowed_methods = res_opt.headers.get("Access-Control-Allow-Methods", "")
+        assert method in allowed_methods
+        allowed_headers = res_opt.headers.get("Access-Control-Allow-Headers", "").lower()
+        assert "x-csrf-token" in allowed_headers
+
+    # 3. Standard GET request with Origin header
     res_get = client.get("/api/health", headers={"Origin": frontend_origin})
     assert res_get.status_code == 200
     assert res_get.headers.get("Access-Control-Allow-Origin") == frontend_origin
     assert res_get.headers.get("Access-Control-Allow-Credentials") == "true"
+
 
