@@ -122,24 +122,100 @@ def test_vercel_path_fix_middleware(client):
     Simulate Vercel edge rewrite where PATH_INFO is /api/index.py or /api/index
     and HTTP_X_FORWARDED_URI contains the true original client request URL.
     """
-    # 1. Simulating Vercel rewrite of /api/health to /api/index.py
+    # 1. Simulating Vercel rewrite of /api/health to /api/index.py with header
     res = client.get("/api/index.py", headers={"X-Forwarded-Uri": "/api/health"})
     assert res.status_code == 200
     data = res.get_json()
     assert data["status"] == "healthy"
     assert data["model_loaded"] is True
+    assert data["total_symptoms_supported"] == 131
+    assert data["total_conditions_supported"] == 41
 
-    # 2. Simulating Vercel rewrite of root / to /api/index.py
+    # 2. Simulating Vercel rewrite of root / to /api/index.py with header
     res_root = client.get("/api/index.py", headers={"X-Forwarded-Uri": "/"})
     assert res_root.status_code == 200
     assert res_root.get_json()["status"] == "online"
 
-    # 3. Simulating Vercel rewrite of /api/symptoms to /api/index
+    # 3. Simulating Vercel rewrite of /api/symptoms to /api/index with header
     res_sym = client.get("/api/index", headers={"X-Forwarded-Uri": "/api/symptoms"})
     assert res_sym.status_code == 200
-    assert res_sym.get_json()["success"] is True
+    sym_json = res_sym.get_json()
+    assert sym_json["success"] is True
+    assert "categories" in sym_json["data"]
+    assert "flat_list" in sym_json["data"]
+    assert len(sym_json["data"]["flat_list"]) == 131
 
-    # 4. Direct request to /api/index.py without headers should also return 200 online info
+    # 4. Direct request to /api/index.py without headers should return 200 online info
     res_direct = client.get("/api/index.py")
     assert res_direct.status_code == 200
     assert res_direct.get_json()["status"] == "online"
+
+
+def test_vercel_query_rewrite_routes(client):
+    """
+    Simulate Vercel edge rewrite using the ?__path query parameter (from vercel.json).
+    Ensures that /api/index.py?__path=/api/... invokes the actual handler and returns the expected contract.
+    """
+    # 1. Symptoms via rewrite query
+    res_sym = client.get("/api/index.py?__path=/api/symptoms")
+    assert res_sym.status_code == 200
+    sym_data = res_sym.get_json()
+    assert sym_data["success"] is True
+    assert isinstance(sym_data["data"]["categories"], list)
+    assert len(sym_data["data"]["categories"]) > 0
+    assert sym_data["data"]["total_count"] == 131
+
+    # 2. Metrics via rewrite query
+    res_metrics = client.get("/api/index.py?__path=/api/metrics")
+    assert res_metrics.status_code == 200
+    metrics_data = res_metrics.get_json()
+    assert metrics_data["success"] is True
+    assert "accuracy" in metrics_data["data"]
+    assert "f1_macro" in metrics_data["data"]
+    assert "class_metrics" in metrics_data["data"]
+    assert metrics_data["data"]["total_test_samples"] > 0
+
+    # 3. Health via rewrite query
+    res_health = client.get("/api/index.py?__path=/api/health")
+    assert res_health.status_code == 200
+    health_data = res_health.get_json()
+    assert health_data["status"] == "healthy"
+    assert health_data["model_loaded"] is True
+    assert health_data["service"] == "AI Disease Prediction Engine"
+
+    # 4. Query string parameters must be preserved and cleaned
+    res_stats = client.get("/api/index.py?__path=/api/dashboard/stats&scope=test")
+    assert res_stats.status_code == 200
+    assert res_stats.get_json()["success"] is True
+
+    # 5. Unknown routes must return 404, NOT accidentally match root_info (200)
+    res_404 = client.get("/api/index.py?__path=/api/nonexistent_route")
+    assert res_404.status_code == 404
+    data_404 = res_404.get_json()
+    assert data_404["success"] is False
+    assert data_404["error"] == "Not Found"
+
+
+def test_cors_headers_for_deployed_frontend(client):
+    """Verify CORS preflight and responses allow the deployed Vercel frontend origin."""
+    frontend_origin = "https://frontend-chi-one-urzm5h4o0z.vercel.app"
+
+    # Preflight OPTIONS request
+    res_opt = client.options(
+        "/api/symptoms",
+        headers={
+            "Origin": frontend_origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Content-Type, X-CSRF-Token, X-Forwarded-Uri"
+        }
+    )
+    assert res_opt.status_code in (200, 204)
+    assert res_opt.headers.get("Access-Control-Allow-Origin") == frontend_origin
+    assert res_opt.headers.get("Access-Control-Allow-Credentials") == "true"
+
+    # Standard GET request
+    res_get = client.get("/api/health", headers={"Origin": frontend_origin})
+    assert res_get.status_code == 200
+    assert res_get.headers.get("Access-Control-Allow-Origin") == frontend_origin
+    assert res_get.headers.get("Access-Control-Allow-Credentials") == "true"
+

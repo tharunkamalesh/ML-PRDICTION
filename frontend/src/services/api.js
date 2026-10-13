@@ -4,11 +4,48 @@
  * CSRF token injection, role-based requests, and ML inference.
  */
 
-const rawBase = import.meta.env.VITE_API_BASE_URL;
-let API_BASE = '/api';
-if (rawBase) {
-  const trimmed = rawBase.replace(/\/+$/, '');
-  API_BASE = trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+/**
+ * Normalizes API base URL from environment variable VITE_API_BASE_URL.
+ * Supports:
+ * - Local development fallback: '/api' (proxied by Vite)
+ * - Full domain without /api (e.g. 'https://backend-iota-tawny-92.vercel.app' -> 'https://backend-iota-tawny-92.vercel.app/api')
+ * - Full domain with /api (e.g. 'https://backend-iota-tawny-92.vercel.app/api' -> 'https://backend-iota-tawny-92.vercel.app/api')
+ * - Trailing slashes stripped cleanly
+ */
+export function getApiBaseUrl() {
+  const rawBase = import.meta.env.VITE_API_BASE_URL;
+  if (!rawBase || !rawBase.trim()) {
+    return '/api';
+  }
+  const trimmed = rawBase.trim().replace(/\/+$/, '');
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
+
+/**
+ * Constructs a fully qualified or relative API path without duplicating /api.
+ * Works whether endpoint is passed as:
+ * - '/symptoms'
+ * - '/api/symptoms'
+ * - 'symptoms'
+ * - '/history?limit=10'
+ */
+export function formatApiUrl(endpoint) {
+  const base = getApiBaseUrl();
+  let cleanEndpoint = (endpoint || '').trim();
+
+  // Ensure cleanEndpoint begins with a slash
+  if (!cleanEndpoint.startsWith('/')) {
+    cleanEndpoint = `/${cleanEndpoint}`;
+  }
+
+  // Strip duplicate leading /api if passed in endpoint
+  if (cleanEndpoint.startsWith('/api/')) {
+    cleanEndpoint = cleanEndpoint.slice(4);
+  } else if (cleanEndpoint === '/api') {
+    cleanEndpoint = '';
+  }
+
+  return `${base}${cleanEndpoint}`;
 }
 
 let memoryCsrfToken = '';
@@ -25,11 +62,23 @@ export function getCsrfToken() {
 }
 
 /**
- * Common fetch helper ensuring credentials (cookies) and CSRF tokens are attached.
+ * Common fetch helper ensuring credentials (cookies), CSRF tokens,
+ * and canonical routing headers are attached without duplicating /api.
  */
 async function request(endpoint, options = {}) {
-  const url = `${API_BASE}${endpoint}`;
+  const url = formatApiUrl(endpoint);
   const headers = { ...(options.headers || {}) };
+
+  // Set forwarding headers to assist reverse edge proxies (like Vercel)
+  let normalizedPath = (endpoint || '').trim();
+  if (!normalizedPath.startsWith('/')) {
+    normalizedPath = `/${normalizedPath}`;
+  }
+  if (!normalizedPath.startsWith('/api')) {
+    normalizedPath = `/api${normalizedPath}`;
+  }
+  headers['X-Forwarded-Uri'] = normalizedPath;
+  headers['X-Original-Path'] = normalizedPath;
 
   const method = (options.method || 'GET').toUpperCase();
   if (['POST', 'PUT', 'DELETE'].includes(method)) {

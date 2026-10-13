@@ -56,41 +56,80 @@ class VercelPathFixMiddleware:
     WSGI Middleware to restore the true client request path and query string on Vercel.
     When Vercel's edge proxy rewrites incoming requests to /api/index.py or /api/index,
     the WSGI PATH_INFO variable may be overwritten with the internal function file path.
-    This middleware restores the original URL from HTTP_X_FORWARDED_URI or HTTP_X_MATCHED_PATH.
+    This middleware restores the original URL from:
+    1. Rewrite query parameter: __path, path, or __vercel_path (from vercel.json rewrites)
+    2. Headers: HTTP_X_FORWARDED_URI, HTTP_X_ORIGINAL_URI, or HTTP_X_ORIGINAL_PATH
+    3. HTTP_X_MATCHED_PATH / RAW_URI
     """
     def __init__(self, app):
         self.app = app
 
     def __call__(self, environ, start_response):
         path_info = environ.get("PATH_INFO", "")
-        # If PATH_INFO points to the serverless function destination
-        if path_info in ("/api/index.py", "/api/index", "/api", "/index.py", "/index", ""):
-            raw_uri = (
+        query_string = environ.get("QUERY_STRING", "")
+
+        is_internal_entrypoint = path_info in (
+            "/api/index.py",
+            "/api/index",
+            "/index.py",
+            "/index",
+            ""
+        )
+
+        restored_path = None
+
+        # 1. Check for query parameter injected by vercel.json rewrite (e.g. __path=/api/symptoms)
+        if query_string:
+            from urllib.parse import parse_qs, urlencode
+            params = parse_qs(query_string, keep_blank_values=True)
+            for key in ("__path", "path", "__vercel_path"):
+                if key in params and params[key]:
+                    candidate = params.pop(key)[0].strip()
+                    if candidate and candidate not in ("/api/index.py", "/api/index", "/index.py", "/index"):
+                        restored_path = candidate
+                        environ["QUERY_STRING"] = urlencode(params, doseq=True)
+                        break
+
+        # 2. Check proxy headers if restored_path not yet found
+        if not restored_path:
+            raw_header_uri = (
                 environ.get("HTTP_X_FORWARDED_URI") or 
                 environ.get("HTTP_X_ORIGINAL_URI") or 
-                environ.get("HTTP_X_MATCHED_PATH") or
-                environ.get("RAW_URI")
+                environ.get("HTTP_X_ORIGINAL_PATH")
             )
-            if raw_uri:
-                if "?" in raw_uri:
-                    clean_path, query_str = raw_uri.split("?", 1)
+            if raw_header_uri:
+                raw_header_uri = raw_header_uri.strip()
+                if "?" in raw_header_uri:
+                    clean_path, query_str = raw_header_uri.split("?", 1)
                     if not environ.get("QUERY_STRING"):
                         environ["QUERY_STRING"] = query_str
                 else:
-                    clean_path = raw_uri
-
+                    clean_path = raw_header_uri
                 clean_path = clean_path.strip()
                 if clean_path and clean_path not in ("/api/index.py", "/api/index", "/index.py", "/index"):
-                    environ["PATH_INFO"] = clean_path
-                else:
-                    environ["PATH_INFO"] = "/"
-            else:
-                environ["PATH_INFO"] = "/"
+                    restored_path = clean_path
+
+        # 3. Check X-Matched-Path or RAW_URI if it differs from internal entrypoint
+        if not restored_path:
+            matched_path = environ.get("HTTP_X_MATCHED_PATH") or environ.get("RAW_URI")
+            if matched_path:
+                clean_matched = matched_path.split("?", 1)[0].strip()
+                if clean_matched and clean_matched not in ("/api/index.py", "/api/index", "/index.py", "/index"):
+                    restored_path = clean_matched
+
+        # Apply restored_path if found
+        if restored_path:
+            if not restored_path.startswith("/"):
+                restored_path = f"/{restored_path}"
+            environ["PATH_INFO"] = restored_path
+        elif is_internal_entrypoint:
+            # Direct invocation of the internal entrypoint with no route info defaults to root
+            environ["PATH_INFO"] = "/"
 
         return self.app(environ, start_response)
 
 app = Flask(__name__)
-# 1. Restore real request path from Vercel edge proxy headers
+# 1. Restore real request path from Vercel edge proxy rewrites and headers
 app.wsgi_app = VercelPathFixMiddleware(app.wsgi_app)
 # 2. Enable ProxyFix to correctly interpret reverse proxy headers from Render and Vercel
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -99,7 +138,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "healthai-secure-secret-key-2026")
 SESSION_COOKIE_NAME = "healthai_session"
 CSRF_COOKIE_NAME = "healthai_csrf"
-COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "False").strip().lower() in ("true", "1")
+COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "True" if os.environ.get("VERCEL") else "False").strip().lower() in ("true", "1")
 COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "None" if COOKIE_SECURE else "Lax")
 
 # Configure CORS dynamically for deployed frontend and local development
@@ -108,7 +147,9 @@ allowed_origins = [
     "http://127.0.0.1:5173",
     "http://localhost:5000",
     "http://127.0.0.1:5000",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "https://frontend-chi-one-urzm5h4o0z.vercel.app",
+    re.compile(r"^https://.*\.vercel\.app$")
 ]
 frontend_url = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
 if frontend_url and frontend_url not in allowed_origins:
@@ -124,7 +165,13 @@ if extra_origins:
 CORS(
     app,
     supports_credentials=True,
-    resources={r"/*": {"origins": allowed_origins}}
+    resources={
+        r"/*": {
+            "origins": allowed_origins,
+            "allow_headers": ["Content-Type", "Authorization", "X-CSRF-Token", "X-Forwarded-Uri", "X-Original-Path", "X-Original-Uri"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        }
+    }
 )
 
 # Ensure database tables and initial admin exist
